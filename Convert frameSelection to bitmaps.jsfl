@@ -100,8 +100,8 @@ if(selectedFrames.length>0){
 		
 		resultLayer.locked = false;
 		timeline.currentLayer = resultLayerNum;
+		timeline.convertToBlankKeyframes(cf);
 		timeline.currentFrame = cf;
-		timeline.convertToBlankKeyframes();
 		
 		document.clipPaste(true);
 		
