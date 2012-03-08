@@ -5,11 +5,12 @@
 // Converts content of frame selection into bitmaps.
 /////////////////////////////////
 
-var lay, f, layer;
+var lay, f, layer, layerNum;
 var document = fl.getDocumentDOM();
 var timeline = document.getTimeline();
 var selectedFrames = timeline.getSelectedFrames();
-
+var resultLayer = null;
+var resultLayerNum;
 if(selectedFrames.length>0){
 	
 	var layerStart = selectedFrames[0];
@@ -19,9 +20,19 @@ if(selectedFrames.length>0){
 	var layersUnlocked = [];
 	
 	//CREATE RESULT LAYER
-	timeline.currentLayer = layerEnd;
-	var resultLayerNum = timeline.addNewLayer("Bitmaps", "normal", false);
-	var resultLayer = timeline.layers[resultLayerNum];
+	//if not exists already..
+	/*for(lay=0; lay<timeline.layers.length; lay++){
+		if(timeline.layers[lay].name == "__BITMAP_RESULTS__") {
+			resultLayer = timeline.layers[lay];
+			resultLayerNum = lay;
+			break;
+		}
+	}*/
+	if(!resultLayer){
+		timeline.currentLayer = layerEnd;
+		resultLayerNum = timeline.addNewLayer("__BITMAP_RESULTS__", "normal", false);
+		resultLayer = timeline.layers[resultLayerNum];
+	}
 	resultLayer.locked = true;
 	
 	//STORE LAYER's LOCKS
@@ -46,15 +57,40 @@ if(selectedFrames.length>0){
 		var keyFrames = 0;
 		for(lay=0; lay<numLayers; lay++){
 			layer = timeline.layers[layersUnlocked[lay]];
+			timeline.currentLayer = layersUnlocked[lay];
 			frame = layer.frames[f];
-			if(frame.elements.length==0) {
-				emptyFrames++;
-			} else if(f==frame.startFrame){//is keyframe
-				keyFrames++;
+			if(frame) {
+				if(frame.tweenType!="none"){
+					if(f<layer.frames.length-1){
+						timeline.convertToKeyframes(f,f);
+					}
+					frame.tweenType = "none";
+					timeline.currentFrame = f;
+				}
+				
+				//break any movie instances
+				for(i=0;i<frame.elements.length;i++){
+					if(frame.elements[i].elementType == "instance"){
+						if(frame.duration>1){
+							//if the movie was on frame sequence, create a keyFrame here
+							//so the animations inside the movie still will be in next frames
+							timeline.convertToKeyframes(f,f);
+						}
+						timeline.currentLayer = layersUnlocked[lay];
+						timeline.setSelectedFrames(f,f, true);
+						document.breakApart();
+					}
+				}
+				
+				if(frame.elements.length==0) {
+					emptyFrames++;
+				} else if(f==frame.startFrame){//is keyframe
+					keyFrames++;
+				}
 			}
 		}
 		if(
-			f==frameStart || //convert to keyFrames if it's selection start frame
+			f==frameStart || //convert to bitmap keyFrames if it's selection start frame
 			keyFrames>0
 		){
 			keyFramesToConvert.push(f);
@@ -63,13 +99,16 @@ if(selectedFrames.length>0){
 				keyFrames<(numLayers-emptyFrames)
 			){
 				for(lay=0; lay<numLayers; lay++){
-					var layerNum = layersUnlocked[lay];
-					layer = timeline.layers[layerNum];
-					if(f!=layer.frames[f].startFrame){//isn't keyframe
-						timeline.currentFrame = f;
-						timeline.currentLayer = layerNum;
-						timeline.setSelectedFrames([layerNum, f, f], true);
-						timeline.convertToKeyframes();
+					layerNum = layersUnlocked[lay];
+					frame = layer.frames[f];
+					if(frame){
+						layer = timeline.layers[layerNum];
+						if(f!=layer.frames[f].startFrame){//isn't keyframe
+							timeline.currentFrame = f;
+							timeline.currentLayer = layerNum;
+							timeline.setSelectedFrames([layerNum, f, f], true);
+							timeline.convertToKeyframes();
+						}
 					}
 				}
 			}
@@ -86,26 +125,34 @@ if(selectedFrames.length>0){
 			timeline.convertToKeyframes();
 		}
 	}
-
+	// prepare empty keyframes in the result layer
+	timeline.currentLayer = resultLayerNum;
+	for(f=0; f<keyFramesToConvert.length; f++){
+		cf = keyFramesToConvert[f];
+		if(cf>0) timeline.convertToBlankKeyframes(cf);
+	}
+	
+	// convert keyframes into bitmaps and paste result into resultLayer 
 	for(f=keyFramesToConvert.length-1; f>=0; f--){
-		var cf = keyFramesToConvert[f];
+		cf = keyFramesToConvert[f];
 		timeline.currentLayer = layersUnlocked[0];
 		timeline.currentFrame = cf;
 		
 		document.selectAll();
-		document.convertSelectionToBitmap();
-		
-		document.selectAll();
-		document.clipCut();
-		
-		resultLayer.locked = false;
-		timeline.currentLayer = resultLayerNum;
-		timeline.convertToBlankKeyframes(cf);
-		timeline.currentFrame = cf;
-		
-		document.clipPaste(true);
-		
-		resultLayer.locked = true;
+		if(document.selection.length>0){
+			document.convertSelectionToBitmap();
+			
+			document.selectAll();
+			document.clipCut();
+			
+			resultLayer.locked = false;
+			timeline.currentLayer = resultLayerNum;
+			timeline.currentFrame = cf;
+			
+			document.clipPaste(true);
+			
+			resultLayer.locked = true;
+		}
 	}
 	
 	//RESTORE LAYER's LOCKS
@@ -114,8 +161,12 @@ if(selectedFrames.length>0){
 	}
 	resultLayer.locked = false;
 	
-	//ADD EMPTY FRAME AFTER LAST RESULT FRAME
+	//ADD EMPTY FRAME AFTER LAST RESULT FRAME (if not last)
 	timeline.currentLayer = resultLayerNum;
-	timeline.currentFrame = frameEnd+1;
-	timeline.convertToBlankKeyframes();
+	
+	if(frameEnd<resultLayer.frames.length-1){
+		
+		timeline.currentFrame = frameEnd;
+		timeline.convertToBlankKeyframes();
+	}
 }
